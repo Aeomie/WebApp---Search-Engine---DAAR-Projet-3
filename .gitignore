@@ -1,2 +1,2 @@
-
-DataFetcher/pythonproject/books/*
+books/
+books_catalog.json

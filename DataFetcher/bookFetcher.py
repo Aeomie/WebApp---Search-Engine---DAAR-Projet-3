@@ -13,12 +13,14 @@ books_per_main_url = 1000
 
 session = requests.Session()
 books_to_download = []
+BOOKS_SAVE_LOCATION = "../books/"
+JSON_CATALOG_FILE = "../books_catalog.json"
 
 # Dictionary to store book catalog
 books_catalog = {}
 
 
-def save_to_json(catalog, output_file="books_catalog.json"):
+def save_to_json(catalog, output_file=JSON_CATALOG_FILE):
     """
     Save the books catalog to a JSON file.
 
@@ -82,7 +84,7 @@ def download_book(book_page_url):
 
         # Save with Gutenberg ID as filename
         filename = f"{gutenberg_id}.txt"
-        file_path = os.path.join("books", filename)
+        file_path = os.path.join(BOOKS_SAVE_LOCATION, filename)
 
         with open(file_path, "wb") as f:
             f.write(data)
@@ -125,7 +127,7 @@ if __name__ == "__main__":
 
         print(f"Collected {books_for_this_url} books from {main_url}")
 
-    os.makedirs("books", exist_ok=True)
+    os.makedirs(BOOKS_SAVE_LOCATION, exist_ok=True)
     print(f"\nTotal books to download: {len(books_to_download)}\n")
 
     # Download books with threading
