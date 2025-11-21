@@ -11,7 +11,7 @@ public class BookResponseDTO {
 
     private Long id;
 
-    private String title;  // ← lowercase 't'
+    private String title;
 
     private String author;
 }
