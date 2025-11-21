@@ -13,7 +13,7 @@ class IndexContent(BaseModel):
     frequency: int
 
 class indexService:
-    def __init__(self, storage_path="../data/index_storage"):
+    def __init__(self, storage_path="../books_data"):
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(exist_ok=True, parents=True)
         self.indexing_dict: Dict[str, List[Dict]] = {}
@@ -82,7 +82,7 @@ class indexService:
     async def save_index_async(self):
         """Save index to JSON files (async)"""
         # Save inverted index
-        index_file = self.storage_path / 'index_content.json'
+        index_file = self.storage_path / 'indexTable.json'
         with open(index_file, 'w') as f:
             json.dump(self.indexing_dict, f)
 
