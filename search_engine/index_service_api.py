@@ -23,22 +23,25 @@ app = FastAPI()
 indexing_service = indexService()
 indexing_thread_pool = ThreadPoolExecutor(max_workers=1)
 
+@app.get("/openapi.json")
+def custom_openapi():
+    return app.openapi()
+
 def run_indexing(index_type: str, num_processes: int = 4):
     """Synchronous indexing function to run in thread"""
     try:
-        indexing_service.indexing_status['status'] = 'indexing'
         indexing_service.build_index_parallel(num_processes, index_type)
     except Exception as e:
         print(f"ERROR IN BACKGROUND INDEXING: {e}")
-        indexing_service.indexing_status['is_indexing'] = False
-        indexing_service.indexing_status['status'] = 'failed'
+        indexing_service.indexing_status[index_type]['is_indexing'] = False
+        indexing_service.indexing_status[index_type]['status'] = 'failed'
 
 @app.post("/indexAPI/build")
 async def build_index(request: IndexRequest):
     """Build index from catalog in the background"""
     try:
-        if indexing_service.indexing_status['is_indexing']:
-            raise HTTPException(status_code=409, detail="Indexing already in progress")
+        if indexing_service.indexing_status[request.index_type]['is_indexing']:
+            raise HTTPException(status_code=409, detail=f"{request.index_type} indexing already in progress")
 
         if request.index_type not in ["T", "TC"]:
             raise HTTPException(status_code=400, detail="index_type must be 'T' or 'TC'")
@@ -58,9 +61,11 @@ async def build_index(request: IndexRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/indexAPI/status", response_model=IndexStatus)
-async def get_index_status() -> IndexStatus:
-    """Get current indexing status - always responsive"""
-    return IndexStatus(**indexing_service.indexing_status)
+async def get_index_status(index_type: str = "T") -> IndexStatus:
+    """Get current indexing status for specific index type"""
+    if index_type not in ["T", "TC"]:
+        raise HTTPException(status_code=400, detail="index_type must be 'T' or 'TC'")
+    return IndexStatus(**indexing_service.indexing_status[index_type])
 
 @app.get("/indexAPI/stats")
 async def get_stats():

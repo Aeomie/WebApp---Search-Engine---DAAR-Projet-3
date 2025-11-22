@@ -26,16 +26,28 @@ class indexService:
         self.storage_path.mkdir(exist_ok=True, parents=True)
         self.indexing_dict: Dict[str, List[Dict]] = {}
 
-        # to keep the server's status
+        # Separate status for each index type
         self.indexing_status = {
-            'is_indexing': False,
-            'progress': 0,
-            'total_books': 0,
-            'indexed_books': 0,
-            'status': 'idle',
-            'start_time': None,
-            'end_time': None
+            'T': {
+                'is_indexing': False,
+                'progress': 0,
+                'total_books': 0,
+                'indexed_books': 0,
+                'status': 'idle',
+                'start_time': None,
+                'end_time': None
+            },
+            'TC': {
+                'is_indexing': False,
+                'progress': 0,
+                'total_books': 0,
+                'indexed_books': 0,
+                'status': 'idle',
+                'start_time': None,
+                'end_time': None
+            }
         }
+
 
     def tokenize(self, text: str) -> List[str]:
         """Extract words from text"""
@@ -102,10 +114,10 @@ class indexService:
         """Build index by streaming through catalog in batches"""
         BATCH_SIZE = 1000
 
-        self.indexing_status['is_indexing'] = True
-        self.indexing_status['status'] = 'indexing'
-        self.indexing_status['indexed_books'] = 0
-        self.indexing_status['start_time'] = datetime.now().isoformat()
+        self.indexing_status[index_type]['is_indexing'] = True
+        self.indexing_status[index_type]['status'] = 'indexing'
+        self.indexing_status[index_type]['indexed_books'] = 0
+        self.indexing_status[index_type]['start_time'] = datetime.now().isoformat()
         self.indexing_dict = {}
 
         # Load catalog once
@@ -114,7 +126,7 @@ class indexService:
             catalog = json.load(f)
 
         all_book_ids = list(catalog.keys())
-        self.indexing_status['total_books'] = len(all_book_ids)
+        self.indexing_status[index_type]['total_books'] = len(all_book_ids)
 
         # Process in batches
         for batch_start in range(0, len(all_book_ids), BATCH_SIZE):
@@ -167,19 +179,18 @@ class indexService:
                             self.indexing_dict[word] = []
                         self.indexing_dict[word].extend(entries)
 
-                    self.indexing_status['indexed_books'] += count
-                    self.indexing_status['progress'] = int(
-                        self.indexing_status['indexed_books'] / len(all_book_ids) * 100
+                    self.indexing_status[index_type]['indexed_books'] += count
+                    self.indexing_status[index_type]['progress'] = int(
+                        self.indexing_status[index_type]['indexed_books'] / len(all_book_ids) * 100
                     )
 
             del books
-
-        self.indexing_status['is_indexing'] = False
-        self.indexing_status['status'] = 'completed'
-        self.indexing_status['end_time'] = datetime.now().isoformat()
-        self.indexing_status['progress'] = 100
+        self.indexing_status[index_type]['is_indexing'] = False
+        self.indexing_status[index_type]['end_time'] = datetime.now().isoformat()
+        self.indexing_status[index_type]['progress'] = 100
 
         self.save_index(index_type)
+        self.indexing_status[index_type]['status'] = 'completed'
 
     def save_index(self, index_type: str):
         """Save index to JSON files"""
@@ -190,6 +201,7 @@ class indexService:
             json.dump(self.indexing_dict, f, ensure_ascii=False)
 
         # Save status
-        status_file = self.storage_path / 'index_status.json'
+        status_file_name = f"index_status_{index_type}.json"
+        status_file = self.storage_path / status_file_name
         with open(status_file, 'w', encoding='utf-8') as f:
             json.dump(self.indexing_status, f, indent=2, ensure_ascii=False)

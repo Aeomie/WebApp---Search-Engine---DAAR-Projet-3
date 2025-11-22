@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -21,6 +22,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,15 +37,18 @@ public class StartUpInitializer {
 
     @Getter
     private Map<Long, Book> books;
-
     private List<BookIndexEntity> bookIndexEntities;
+    private List<BookIndexContentEntity>  bookIndexContentEntities;
+
     private final BookRepository bookRepository;
     private final BookIndexRepository indexRepository;
+    private final BookIndexContentRepository indexContentRepository;
     private final RestTemplate restTemplate;
 
     // Path relative to resources folder
     @Value("${books.catalog_path}")
     private String BOOKS_DATA_CATALOG_JSON_PATH;
+
     @Value("${books.index_title_path}")
     private String INDEX_TITLE_TABLE_JSON_PATH;
 
@@ -55,12 +61,16 @@ public class StartUpInitializer {
     @Value("${index_status_api}")
     private String STATUS_INDEX_API;
     @Autowired
-    public StartUpInitializer(BookRepository bookRepository, BookIndexRepository indexRepository, RestTemplate restTemplate) {
+    public StartUpInitializer(BookRepository bookRepository, BookIndexRepository indexRepository,
+                              BookIndexContentRepository indexContentRepository,
+                              RestTemplate restTemplate) {
         this.bookRepository = bookRepository;
         this.indexRepository = indexRepository;
+        this.indexContentRepository = indexContentRepository;
         this.restTemplate = restTemplate;
         this.books = new HashMap<>();
         this.bookIndexEntities = new ArrayList<>();
+        this.bookIndexContentEntities = new ArrayList<>();
     }
 
     @PostConstruct
@@ -189,31 +199,40 @@ public class StartUpInitializer {
     }
 
 
-    private void waitforIndexingCompletion() throws InterruptedException {
+    private void waitforIndexingCompletion(String indexType) throws InterruptedException {
         while (true) {
-            Map<String, Object> status = restTemplate.getForObject(STATUS_INDEX_API, Map.class);
+            // Add index_type query parameter
+            String statusUrl = STATUS_INDEX_API + "?index_type=" + indexType;
+            Map<String, Object> status = restTemplate.getForObject(statusUrl, Map.class);
             String statusStr = (String) status.get("status");
             if ("completed".equals(statusStr)) {
                 break;
             }
-            Thread.sleep(300);
+            Thread.sleep(500);
         }
     }
+
     private void createBooksIndex(){
 
         try {
 
-            Map<String, Object> requestBodyTitle = Map.of("index_type", "T");
+            String indexType = "T";
+
+            // To Build Title Index
+            Map<String, Object> requestBodyTitle = Map.of("index_type", indexType);
             restTemplate.postForObject(BUILD_INDEX_API, requestBodyTitle, Map.class);
             logger.info("Title index build started");
-            waitforIndexingCompletion();
+            waitforIndexingCompletion(indexType);
             logger.info("Title index completed");
 
-//            Map<String, Object> requestBodyTC = Map.of("index_type", "TC");
-//            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
-//            logger.info("Title+Content index build started");
-//            waitforIndexingCompletion();
-//            logger.info("Title+Content index completed");
+            indexType = "TC";
+
+            // to Build Title Content Index
+            Map<String, Object> requestBodyTC = Map.of("index_type", indexType);
+            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
+            logger.info("Title+Content index build started");
+            waitforIndexingCompletion(indexType);
+            logger.info("Title+Content index completed");
 
             System.out.println("Indexing completed. Reading JSON...");
 
@@ -256,84 +275,98 @@ public class StartUpInitializer {
     }
 
     private void loadIndexTableFromJson() {
+        loadIndexFromFile(INDEX_TITLE_TABLE_JSON_PATH, bookIndexEntities, "Title", BookIndexEntity.class);
+        loadIndexFromFile(INDEX_TITLE_CONTENT_TABLE_JSON_PATH, bookIndexContentEntities, "Title+Content", BookIndexContentEntity.class);
+    }
+
+    private <T> void loadIndexFromFile(String filePath, List<T> targetList, String indexType, Class<T> entityClass) {
         try {
-            Resource resource = new FileSystemResource(INDEX_TITLE_TABLE_JSON_PATH);
+            Resource resource = new FileSystemResource(filePath);
 
             if (!resource.exists()) {
-                throw new JsonFileNotFoundException("JSON file not found at: " + INDEX_TITLE_TABLE_JSON_PATH);
+                throw new JsonFileNotFoundException("JSON file not found at: " + filePath);
             }
 
             ObjectMapper mapper = new ObjectMapper();
 
-            try (InputStream inputStream = resource.getInputStream()) {
+            try (InputStream inputStream = resource.getInputStream();
+                 InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
 
                 Map<String, List<Map<String, Object>>> jsonData =
-                        mapper.readValue(inputStream,
+                        mapper.readValue(reader,
                                 new TypeReference<Map<String, List<Map<String, Object>>>>() {});
 
-                logger.info("📖 JSON entries: {}", jsonData.size());
+                logger.info("📖 {} Index - JSON entries: {}", indexType, jsonData.size());
 
-                bookIndexEntities.clear(); // to be safe
+                targetList.clear();
 
                 int successCount = 0;
                 int failCount = 0;
 
                 for (var entry : jsonData.entrySet()) {
                     String word = entry.getKey();
-                    List<Map<String, Object>> bookList = (List<Map<String, Object>>) entry.getValue();
+                    List<Map<String, Object>> bookList = entry.getValue();
 
                     for (Map<String, Object> bookData : bookList) {
                         try {
-                            BookIndexEntity entity = new BookIndexEntity();
-                            entity.setWord(word);
-                            entity.setBookId(((Number) bookData.get("book_id")).longValue());
-                            entity.setFrequency(((Number) bookData.get("frequency")).intValue());
+                            T entity = entityClass.getDeclaredConstructor().newInstance();
 
-                            bookIndexEntities.add(entity);
+                            // Use reflection to set fields
+                            entityClass.getMethod("setWord", String.class).invoke(entity, word);
+                            entityClass.getMethod("setBookId", Long.class).invoke(entity, ((Number) bookData.get("book_id")).longValue());
+                            entityClass.getMethod("setFrequency", Integer.class).invoke(entity, ((Number) bookData.get("frequency")).intValue());
+
+                            targetList.add(entity);
                             successCount++;
 
                             if (successCount % 500 == 0) {
-                                logger.info("  ... processed {}", successCount);
+                                logger.info("  ... {} Index processed {}", indexType, successCount);
                             }
 
                         } catch (Exception e) {
                             failCount++;
-                            logger.warn("⚠️ Skipping malformed entry {}: {}", word, e.getMessage());
+                            logger.warn("⚠️ {} Index - Skipping malformed entry {}: {}", indexType, word, e.getMessage());
                         }
                     }
                 }
 
-                logger.info("✅ Loaded {} entries", successCount);
+                logger.info("✅ {} Index - Loaded {} entries", indexType, successCount);
                 if (failCount > 0)
-                    logger.warn("⚠️ Skipped {} malformed entries", failCount);
+                    logger.warn("⚠️ {} Index - Skipped {} malformed entries", indexType, failCount);
             }
-
         } catch (JsonFileNotFoundException e) {
-            logger.error("❌ {}", e.getMessage());
-            logger.error("💡 Make sure '{}' exists ", INDEX_TITLE_TABLE_JSON_PATH);
+            logger.error("❌ {} Index - {}", indexType, e.getMessage());
+            logger.error("💡 Make sure '{}' exists ", filePath);
             throw e;
         } catch (IOException e) {
-            logger.error("❌ Error reading INDEX JSON file", e);
-            throw new InitializationException("Failed to read JSON file", e);
+            logger.error("❌ {} Index - Error reading JSON file", indexType, e);
+            throw new InitializationException("Failed to read JSON file: " + filePath, e);
         }
     }
 
     private void loadIndexTableToDatabase() {
+        loadIndexToDatabase(bookIndexEntities, indexRepository, "Title");
+        loadIndexToDatabase(bookIndexContentEntities, indexContentRepository, "Title+Content");
+    }
+
+    private <T> void loadIndexToDatabase(List<T> entities, JpaRepository<T, ?> repository, String indexType) {
         int loadCount = 0;
         int loadSteps = 500;
 
-        while (loadCount < bookIndexEntities.size()) {
+        logger.info("📤 Loading {} Index to database...", indexType);
 
-            int end = Math.min(loadCount + loadSteps, bookIndexEntities.size());
-            List<BookIndexEntity> loadList = bookIndexEntities.subList(loadCount, end);
+        while (loadCount < entities.size()) {
+            int end = Math.min(loadCount + loadSteps, entities.size());
+            List<T> loadList = entities.subList(loadCount, end);
 
-            indexRepository.saveAll(loadList);
-            logger.info("📦 Saved {} entries to DB ({}–{})",
-                    loadList.size(), loadCount, end);
+            repository.saveAll(loadList);
+            logger.info("📦 {} Index - Saved {} entries to DB ({}–{})",
+                    indexType, loadList.size(), loadCount, end);
 
             loadCount = end;
         }
-        logger.info("✅ Database load completed.");
+
+        logger.info("✅ {} Index - Database load completed ({} total entries)", indexType, entities.size());
     }
 
 }
