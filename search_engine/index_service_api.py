@@ -1,20 +1,16 @@
-# main.py
-from concurrent.futures import ProcessPoolExecutor
-
-from fastapi import FastAPI
-from engine import engine_text
-import asyncio
-from functools import lru_cache
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 from indexService import indexService, Book
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from fastapi import HTTPException
+
+
 class IndexBuildRequest(BaseModel):
     books: List[Book]
+
+
 class IndexStatus(BaseModel):
     is_indexing: bool
-    progress: int  # Changed from float to int to match usage
+    progress: int
     total_books: int
     indexed_books: int
     status: str
@@ -23,13 +19,23 @@ class IndexStatus(BaseModel):
 
 
 app = FastAPI()
-build_executor = ProcessPoolExecutor(max_workers=4)
 
 # Global service instance
 indexing_service = indexService()
 
+
+async def run_indexing(books: List[Book], num_processes: int = 4):
+    """Background task to run indexing"""
+    try:
+        await indexing_service.build_index_parallel(books, num_processes)
+    except Exception as e:
+        print(f"ERROR IN BACKGROUND INDEXING: {e}")
+        indexing_service.indexing_status['is_indexing'] = False
+        indexing_service.indexing_status['status'] = 'failed'
+
+
 @app.post("/indexAPI/build")
-async def build_index(request: IndexBuildRequest):
+async def build_index(request: IndexBuildRequest, background_tasks: BackgroundTasks):
     """
     Build index from books in the background
     """
@@ -40,14 +46,15 @@ async def build_index(request: IndexBuildRequest):
         if not request.books:
             raise HTTPException(status_code=400, detail="No books provided")
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(build_executor, indexing_service.build_index, request.books)
+        # Add indexing task to background
+        background_tasks.add_task(run_indexing, request.books, 4)
 
         return {
             'message': 'Indexing started',
             'total_books': len(request.books)
         }
-
+    except HTTPException:
+        raise
     except Exception as e:
         print("ERROR IN BUILD_INDEX:", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -56,16 +63,22 @@ async def build_index(request: IndexBuildRequest):
 @app.get("/indexAPI/status", response_model=IndexStatus)
 async def get_index_status() -> IndexStatus:
     """
-    Get current indexing status
+    Get current indexing status - always responsive
     """
     return IndexStatus(**indexing_service.indexing_status)
 
 
 @app.get("/indexAPI/stats")
 async def get_stats():
-    """Get indexing statistics"""
+    """Get indexing statistics - always responsive"""
     return {
-        'total_books': len(indexing_service.indexing_status.get('total_books', 0)),
+        'total_books': indexing_service.indexing_status.get('total_books', 0),
         'unique_words': len(indexing_service.indexing_dict),
         'indexing_status': indexing_service.indexing_status
     }
+
+
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint"""
+    return {"status": "healthy"}

@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -22,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,9 +35,9 @@ public class StartUpInitializer {
     @Getter
     private Map<Long, Book> books;
 
-    private List<BookResponseDTO> bookResponseDTOList;
+    private List<BookIndexEntity> bookIndexEntities;
     private final BookRepository bookRepository;
-    private final BookResponseRepository indexRepository;
+    private final BookIndexRepository indexRepository;
     private final RestTemplate restTemplate;
 
     // Path relative to resources folder
@@ -46,14 +46,18 @@ public class StartUpInitializer {
     @Value("${books.index_path}")
     private String INDEX_TABLE_JSON_PATH;
 
+    @Value("${build_index_api}")
+    private String BUILD_INDEX_API;
 
+    @Value("${index_status_api}")
+    private String STATUS_INDEX_API;
     @Autowired
-    public StartUpInitializer(List<BookResponseDTO> bookResponseDTOList, BookRepository bookRepository, BookResponseRepository indexRepository, RestTemplate restTemplate) {
-        this.bookResponseDTOList = bookResponseDTOList;
+    public StartUpInitializer(BookRepository bookRepository, BookIndexRepository indexRepository, RestTemplate restTemplate) {
         this.bookRepository = bookRepository;
         this.indexRepository = indexRepository;
         this.restTemplate = restTemplate;
         this.books = new HashMap<>();
+        this.bookIndexEntities = new ArrayList<>();
     }
 
     @PostConstruct
@@ -183,10 +187,9 @@ public class StartUpInitializer {
 
     private void createBooksIndex(){
 
-
         try {
-            String pythonUrl = "http://localhost:5001/indexAPI/build";
 
+            ObjectMapper mapper = new ObjectMapper();
             List<BookResponseDTO> bookData = books.values().stream()
                     .map(book -> BookResponseDTO.builder()
                             .id(book.getId())
@@ -195,18 +198,38 @@ public class StartUpInitializer {
                             .build())
                     .toList();
 
+
             Map<String, Object> requestBody = Map.of("books", bookData);
 
+            // Convert to JSON string for inspection
+            try {
+                String json = mapper.writeValueAsString(requestBody);
+                System.out.println("JSON being sent: " + json);
+            } catch (Exception e) {
+                System.out.println("BOOHOO");
+                e.printStackTrace();
+            }
             Map<String, Object> response = restTemplate.postForObject(
-                    pythonUrl,
+                    BUILD_INDEX_API,
                     requestBody,
                     Map.class
             );
 
-            System.out.println("Success: " + response.get("message"));
+            System.out.println("Indexing started...");
+
+            while (true) {
+                Map<String, Object> status = restTemplate.getForObject(STATUS_INDEX_API, Map.class);
+                String statusStr = (String) status.get("status");
+                if ("completed".equals(statusStr)) {
+                    break;
+                }
+                Thread.sleep(300);
+            }
+
+            System.out.println("Indexing completed. Reading JSON...");
 
             // 1️⃣ Clear previous in-memory data (important!)
-            bookResponseDTOList.clear();
+            bookIndexEntities.clear();
 
             // 2️⃣ Reload JSON from Python output
             loadIndexTableFromJson();
@@ -238,6 +261,8 @@ public class StartUpInitializer {
         } catch (RestClientException e) {
             // Catches connection errors
             logger.warn("Connection failed: " + e.getMessage());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -253,37 +278,39 @@ public class StartUpInitializer {
 
             try (InputStream inputStream = resource.getInputStream()) {
 
-                Map<String, Map<String, Object>> jsonData =
+                Map<String, List<Map<String, Object>>> jsonData =
                         mapper.readValue(inputStream,
-                                new TypeReference<Map<String, Map<String, Object>>>() {});
+                                new TypeReference<Map<String, List<Map<String, Object>>>>() {});
 
                 logger.info("📖 JSON entries: {}", jsonData.size());
 
-                bookResponseDTOList.clear(); // to be safe
+                bookIndexEntities.clear(); // to be safe
 
                 int successCount = 0;
                 int failCount = 0;
 
                 for (var entry : jsonData.entrySet()) {
-                    try {
-                        Map<String, Object> bookData = entry.getValue();
+                    String word = entry.getKey();
+                    List<Map<String, Object>> bookList = (List<Map<String, Object>>) entry.getValue();
 
-                        BookResponseDTO dto = new BookResponseDTO(
-                                ((Number) bookData.get("id")).longValue(),
-                                (String) bookData.get("title"),
-                                (String) bookData.get("author")
-                        );
+                    for (Map<String, Object> bookData : bookList) {
+                        try {
+                            BookIndexEntity entity = new BookIndexEntity();
+                            entity.setWord(word);
+                            entity.setBookId(((Number) bookData.get("book_id")).longValue());
+                            entity.setFrequency(((Number) bookData.get("frequency")).intValue());
 
-                        bookResponseDTOList.add(dto);
-                        successCount++;
+                            bookIndexEntities.add(entity);
+                            successCount++;
 
-                        if (successCount % 500 == 0) {
-                            logger.info("  ... processed {}", successCount);
+                            if (successCount % 500 == 0) {
+                                logger.info("  ... processed {}", successCount);
+                            }
+
+                        } catch (Exception e) {
+                            failCount++;
+                            logger.warn("⚠️ Skipping malformed entry {}: {}", word, e.getMessage());
                         }
-
-                    } catch (Exception e) {
-                        failCount++;
-                        logger.warn("⚠️ Skipping malformed entry {}: {}", entry.getKey(), e.getMessage());
                     }
                 }
 
@@ -297,7 +324,7 @@ public class StartUpInitializer {
             logger.error("💡 Make sure '{}' exists ", INDEX_TABLE_JSON_PATH);
             throw e;
         } catch (IOException e) {
-            logger.error("❌ Error reading JSON file", e);
+            logger.error("❌ Error reading INDEX JSON file", e);
             throw new InitializationException("Failed to read JSON file", e);
         }
     }
@@ -306,10 +333,10 @@ public class StartUpInitializer {
         int loadCount = 0;
         int loadSteps = 500;
 
-        while (loadCount < bookResponseDTOList.size()) {
+        while (loadCount < bookIndexEntities.size()) {
 
-            int end = Math.min(loadCount + loadSteps, bookResponseDTOList.size());
-            List<BookResponseDTO> loadList = bookResponseDTOList.subList(loadCount, end);
+            int end = Math.min(loadCount + loadSteps, bookIndexEntities.size());
+            List<BookIndexEntity> loadList = bookIndexEntities.subList(loadCount, end);
 
             indexRepository.saveAll(loadList);
             logger.info("📦 Saved {} entries to DB ({}–{})",

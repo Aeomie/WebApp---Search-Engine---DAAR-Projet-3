@@ -13,8 +13,8 @@ books_per_main_url = 1000
 
 session = requests.Session()
 books_to_download = []
-BOOKS_SAVE_LOCATION = "../books/"
-JSON_CATALOG_FILE = "../books_catalog.json"
+BOOKS_SAVE_LOCATION = "../books_data/books/"
+JSON_CATALOG_FILE = "../books_data/catalog.json"
 
 # Dictionary to store book catalog
 books_catalog = {}
