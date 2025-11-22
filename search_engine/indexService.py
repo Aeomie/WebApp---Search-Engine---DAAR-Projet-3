@@ -1,9 +1,15 @@
-
-from pydantic import BaseModel
-from typing import Dict, List, Optional
+import re
+import json
+import asyncio
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
+from pydantic import BaseModel
+
+
 class Book(BaseModel):
-    id: str
+    id: int
     title: str
     author: Optional[str] = None
 
@@ -33,7 +39,7 @@ class indexService:
         """Extract words from text"""
         return re.findall(r'\b[a-z0-9]+\b', text.lower())
 
-    async def build_index_async(self, books: List[Book]):
+    def build_index(self, book):
         self.indexing_status['is_indexing'] = True
         self.indexing_status['status'] = 'indexing'
         self.indexing_status['total_books'] = len(books)
@@ -65,11 +71,9 @@ class indexService:
             self.indexing_status['indexed_books'] = i + 1
             self.indexing_status['progress'] = int((i + 1) / books_list_size * 100)
             # Yield control to allow other requests (every 10 books) incase the user wants to check on status
-            if i % 10 == 0:
-                await asyncio.sleep(0)
 
         # Saving the content
-        await self.save_index_async()
+        self.save_index()
         self.indexing_status['is_indexing'] = False
         self.indexing_status['status'] = 'completed'
         self.indexing_status['end_time'] = datetime.now().isoformat()
@@ -79,7 +83,7 @@ class indexService:
             'total_books': books_list_size,
         }
 
-    async def save_index_async(self):
+    def save_index(self):
         """Save index to JSON files (async)"""
         # Save inverted index
         index_file = self.storage_path / 'indexTable.json'
