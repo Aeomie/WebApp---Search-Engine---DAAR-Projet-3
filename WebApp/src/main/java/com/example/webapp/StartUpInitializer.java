@@ -43,8 +43,11 @@ public class StartUpInitializer {
     // Path relative to resources folder
     @Value("${books.catalog_path}")
     private String BOOKS_DATA_CATALOG_JSON_PATH;
-    @Value("${books.index_path}")
-    private String INDEX_TABLE_JSON_PATH;
+    @Value("${books.index_title_path}")
+    private String INDEX_TITLE_TABLE_JSON_PATH;
+
+    @Value("${books.index_title_content_path}")
+    private String INDEX_TITLE_CONTENT_TABLE_JSON_PATH;
 
     @Value("${build_index_api}")
     private String BUILD_INDEX_API;
@@ -185,46 +188,32 @@ public class StartUpInitializer {
         }
     }
 
+
+    private void waitforIndexingCompletion() throws InterruptedException {
+        while (true) {
+            Map<String, Object> status = restTemplate.getForObject(STATUS_INDEX_API, Map.class);
+            String statusStr = (String) status.get("status");
+            if ("completed".equals(statusStr)) {
+                break;
+            }
+            Thread.sleep(300);
+        }
+    }
     private void createBooksIndex(){
 
         try {
 
-            ObjectMapper mapper = new ObjectMapper();
-            List<BookResponseDTO> bookData = books.values().stream()
-                    .map(book -> BookResponseDTO.builder()
-                            .id(book.getId())
-                            .title(book.getTitle())
-                            .author(book.getAuthor())
-                            .build())
-                    .toList();
+            Map<String, Object> requestBodyTitle = Map.of("index_type", "T");
+            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTitle, Map.class);
+            logger.info("Title index build started");
+            waitforIndexingCompletion();
+            logger.info("Title index completed");
 
-
-            Map<String, Object> requestBody = Map.of("books", bookData);
-
-            // Convert to JSON string for inspection
-            try {
-                String json = mapper.writeValueAsString(requestBody);
-                System.out.println("JSON being sent: " + json);
-            } catch (Exception e) {
-                System.out.println("BOOHOO");
-                e.printStackTrace();
-            }
-            Map<String, Object> response = restTemplate.postForObject(
-                    BUILD_INDEX_API,
-                    requestBody,
-                    Map.class
-            );
-
-            System.out.println("Indexing started...");
-
-            while (true) {
-                Map<String, Object> status = restTemplate.getForObject(STATUS_INDEX_API, Map.class);
-                String statusStr = (String) status.get("status");
-                if ("completed".equals(statusStr)) {
-                    break;
-                }
-                Thread.sleep(300);
-            }
+//            Map<String, Object> requestBodyTC = Map.of("index_type", "TC");
+//            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
+//            logger.info("Title+Content index build started");
+//            waitforIndexingCompletion();
+//            logger.info("Title+Content index completed");
 
             System.out.println("Indexing completed. Reading JSON...");
 
@@ -268,10 +257,10 @@ public class StartUpInitializer {
 
     private void loadIndexTableFromJson() {
         try {
-            Resource resource = new FileSystemResource(INDEX_TABLE_JSON_PATH);
+            Resource resource = new FileSystemResource(INDEX_TITLE_TABLE_JSON_PATH);
 
             if (!resource.exists()) {
-                throw new JsonFileNotFoundException("JSON file not found at: " + INDEX_TABLE_JSON_PATH);
+                throw new JsonFileNotFoundException("JSON file not found at: " + INDEX_TITLE_TABLE_JSON_PATH);
             }
 
             ObjectMapper mapper = new ObjectMapper();
@@ -321,7 +310,7 @@ public class StartUpInitializer {
 
         } catch (JsonFileNotFoundException e) {
             logger.error("❌ {}", e.getMessage());
-            logger.error("💡 Make sure '{}' exists ", INDEX_TABLE_JSON_PATH);
+            logger.error("💡 Make sure '{}' exists ", INDEX_TITLE_TABLE_JSON_PATH);
             throw e;
         } catch (IOException e) {
             logger.error("❌ Error reading INDEX JSON file", e);

@@ -1,12 +1,12 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
-from indexService import indexService, Book
+from typing import Optional
+from indexService import indexService
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-
-class IndexBuildRequest(BaseModel):
-    books: List[Book]
-
+class IndexRequest(BaseModel):
+    index_type: str
 
 class IndexStatus(BaseModel):
     is_indexing: bool
@@ -17,41 +17,39 @@ class IndexStatus(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
 
-
 app = FastAPI()
 
 # Global service instance
 indexing_service = indexService()
+indexing_thread_pool = ThreadPoolExecutor(max_workers=1)
 
-
-async def run_indexing(books: List[Book], num_processes: int = 4):
-    """Background task to run indexing"""
+def run_indexing(index_type: str, num_processes: int = 4):
+    """Synchronous indexing function to run in thread"""
     try:
-        await indexing_service.build_index_parallel(books, num_processes)
+        indexing_service.indexing_status['status'] = 'indexing'
+        indexing_service.build_index_parallel(num_processes, index_type)
     except Exception as e:
         print(f"ERROR IN BACKGROUND INDEXING: {e}")
         indexing_service.indexing_status['is_indexing'] = False
         indexing_service.indexing_status['status'] = 'failed'
 
-
 @app.post("/indexAPI/build")
-async def build_index(request: IndexBuildRequest, background_tasks: BackgroundTasks):
-    """
-    Build index from books in the background
-    """
+async def build_index(request: IndexRequest):
+    """Build index from catalog in the background"""
     try:
         if indexing_service.indexing_status['is_indexing']:
             raise HTTPException(status_code=409, detail="Indexing already in progress")
 
-        if not request.books:
-            raise HTTPException(status_code=400, detail="No books provided")
+        if request.index_type not in ["T", "TC"]:
+            raise HTTPException(status_code=400, detail="index_type must be 'T' or 'TC'")
 
-        # Add indexing task to background
-        background_tasks.add_task(run_indexing, request.books, 4)
+        # Run in dedicated indexing thread (no asyncio.run needed!)
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(indexing_thread_pool, run_indexing, request.index_type, 4)
 
         return {
-            'message': 'Indexing started',
-            'total_books': len(request.books)
+            'message': f'Indexing started (type: {request.index_type})',
+            'index_type': request.index_type
         }
     except HTTPException:
         raise
@@ -59,14 +57,10 @@ async def build_index(request: IndexBuildRequest, background_tasks: BackgroundTa
         print("ERROR IN BUILD_INDEX:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/indexAPI/status", response_model=IndexStatus)
 async def get_index_status() -> IndexStatus:
-    """
-    Get current indexing status - always responsive
-    """
+    """Get current indexing status - always responsive"""
     return IndexStatus(**indexing_service.indexing_status)
-
 
 @app.get("/indexAPI/stats")
 async def get_stats():
@@ -76,7 +70,6 @@ async def get_stats():
         'unique_words': len(indexing_service.indexing_dict),
         'indexing_status': indexing_service.indexing_status
     }
-
 
 @app.get("/health")
 async def health_check():
