@@ -216,25 +216,31 @@ public class StartUpInitializer {
 
         try {
 
-            String indexType = "T";
+            if ( fileExists(INDEX_TITLE_TABLE_JSON_PATH) && fileExists(INDEX_TITLE_CONTENT_TABLE_JSON_PATH) ){
 
-            // To Build Title Index
-            Map<String, Object> requestBodyTitle = Map.of("index_type", indexType);
-            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTitle, Map.class);
-            logger.info("Title index build started");
-            waitforIndexingCompletion(indexType);
-            logger.info("Title index completed");
+            }
+            else{
+                String indexType = "T";
 
-            indexType = "TC";
 
-            // to Build Title Content Index
-            Map<String, Object> requestBodyTC = Map.of("index_type", indexType);
-            restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
-            logger.info("Title+Content index build started");
-            waitforIndexingCompletion(indexType);
-            logger.info("Title+Content index completed");
+                // To Build Title Index
+                Map<String, Object> requestBodyTitle = Map.of("index_type", indexType);
+                restTemplate.postForObject(BUILD_INDEX_API, requestBodyTitle, Map.class);
+                logger.info("Title index build started");
+                waitforIndexingCompletion(indexType);
+                logger.info("Title index completed");
 
-            System.out.println("Indexing completed. Reading JSON...");
+                indexType = "TC";
+
+                // to Build Title Content Index
+                Map<String, Object> requestBodyTC = Map.of("index_type", indexType);
+                restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
+                logger.info("Title+Content index build started");
+                waitforIndexingCompletion(indexType);
+                logger.info("Title+Content index completed");
+
+                System.out.println("Indexing completed. Reading JSON...");
+            }
 
             // 1️⃣ Clear previous in-memory data (important!)
             bookIndexEntities.clear();
@@ -279,6 +285,13 @@ public class StartUpInitializer {
         loadIndexFromFile(INDEX_TITLE_CONTENT_TABLE_JSON_PATH, bookIndexContentEntities, "Title+Content", BookIndexContentEntity.class);
     }
 
+    private boolean fileExists(String filePath) {
+        /*
+        Function Used in the test period
+         */
+        Resource resource = new FileSystemResource(filePath);
+        return resource.exists();
+    }
     private <T> void loadIndexFromFile(String filePath, List<T> targetList, String indexType, Class<T> entityClass) {
         try {
             Resource resource = new FileSystemResource(filePath);

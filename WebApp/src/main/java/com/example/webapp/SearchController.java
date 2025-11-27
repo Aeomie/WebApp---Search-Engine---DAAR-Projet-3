@@ -22,4 +22,21 @@ public class SearchController {
         return searchService.searchBoyer(simpleSearchDTO.getPattern(),
                 simpleSearchDTO.isVerbose());
     }
+
+    @PostMapping("/searchByTitle")
+    public List<BookResponseDTO> searchTitle(
+            @RequestParam String pattern
+    ){
+        return searchService.searchByTitle(pattern);
+    }
+    @PostMapping("/searchByTC")
+    public List<BookResponseDTO> searchByTitleContent(
+            @RequestBody GenerateWordDTO generateWordDTO
+    ){
+        /*
+        Pattern here is a regex
+         */
+        return searchService.searchByTitleContent(generateWordDTO.getPattern(),
+                generateWordDTO.getMaxWords(), generateWordDTO.getMaxLength());
+    }
 }
