@@ -1,6 +1,9 @@
 package com.example.webapp;
 
 
+import com.example.webapp.DTOS.BookResponseDTO;
+import com.example.webapp.DTOS.GenerateWordDTO;
+import com.example.webapp.DTOS.SimpleSearchDTO;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,19 +18,11 @@ public class SearchController {
         this.searchService = searchService;
     }
 
-    @PostMapping("/Boyer")
-    public List<BookResponseDTO> searchBoyer(
-            @RequestBody SimpleSearchDTO simpleSearchDTO
-    ){
-        return searchService.searchBoyer(simpleSearchDTO.getPattern(),
-                simpleSearchDTO.isVerbose());
-    }
-
     @PostMapping("/searchByTitle")
     public List<BookResponseDTO> searchTitle(
-            @RequestParam String pattern
+            @RequestBody SimpleSearchDTO simpleSearchDTO
     ){
-        return searchService.searchByTitle(pattern);
+        return searchService.searchByTitle(simpleSearchDTO.getPattern());
     }
     @PostMapping("/searchByTC")
     public List<BookResponseDTO> searchByTitleContent(

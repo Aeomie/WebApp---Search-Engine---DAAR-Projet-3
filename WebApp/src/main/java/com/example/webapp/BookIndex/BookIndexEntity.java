@@ -1,4 +1,4 @@
-package com.example.webapp;
+package com.example.webapp.BookIndex;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -7,11 +7,11 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @IdClass(BookIndexCompositeID.class)
-@Table(name = "books_index_content")
+@Table(name = "books_index")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class BookIndexContentEntity {
+public class BookIndexEntity {
 
     @Id
     private String word;

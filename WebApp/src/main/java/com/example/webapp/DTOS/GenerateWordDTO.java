@@ -1,4 +1,4 @@
-package com.example.webapp;
+package com.example.webapp.DTOS;
 
 import lombok.Data;
 

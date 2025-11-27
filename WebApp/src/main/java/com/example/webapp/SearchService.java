@@ -1,6 +1,11 @@
 package com.example.webapp;
 
 
+import com.example.webapp.BookIndex.BookIndexContentEntity;
+import com.example.webapp.BookIndex.BookIndexContentRepository;
+import com.example.webapp.BookIndex.BookIndexEntity;
+import com.example.webapp.BookIndex.BookIndexRepository;
+import com.example.webapp.DTOS.BookResponseDTO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -13,8 +18,7 @@ public class SearchService {
 
     private final BookRepository bookRepository;
     private final BookIndexRepository bookIndexRepository;
-    private final BookIndexContentRepository  bookIndexContentRepository;
-    private final StartUpInitializer startupInitializer;
+    private final BookIndexContentRepository bookIndexContentRepository;
     private final RestTemplate restTemplate;
     @Value("${generate_words_api}")
     private String WORD_GENERATOR_API;
@@ -25,57 +29,9 @@ public class SearchService {
         this.bookRepository = bookRepository;
         this.bookIndexRepository = bookIndexRepository;
         this.bookIndexContentRepository = bookIndexContentRepository;
-        this.startupInitializer = startupInitializer;
         this.restTemplate = restTemplate;
     }
 
-    public List<BookResponseDTO> searchBoyer(String pattern,  boolean verbose) {
-
-        String pythonUrl = "http://localhost:8001/searchBoyer";
-        Map<Long, Book> books = startupInitializer.getBooks();
-        List<String> titles = books.values().stream()
-                .map(Book::getTitle)
-                .toList();
-
-        // Prepare request body
-        // verbose always false as of now
-        Map<String, Object> requestBody = Map.of(
-                "pattern", pattern,
-                "texts", titles,
-                "verbose", verbose
-        );
-
-        // Call Python API
-        Map<String, Object> response = restTemplate.postForObject(
-                pythonUrl,
-                requestBody,
-                Map.class
-        );
-
-        // Extract results
-        List<Map<String, Object>> apiResults = (List<Map<String, Object>>) response.get("results");
-
-        List<BookResponseDTO> results = new ArrayList<>();
-        for (Map<String, Object> item : apiResults) {
-            int totalCount = (Integer) item.get("total_count");
-            if (totalCount > 0) {
-                // Find the book corresponding to this title
-                String title = (String) item.get("text");
-                books.values().stream()
-                        .filter(b -> b.getTitle().equals(title))
-                        .findFirst().ifPresent(book -> results.add(BookResponseDTO.builder()
-                                .id(book.getId())
-                                .title(book.getTitle())
-                                .author(book.getAuthor())
-                                .build()
-                        ));
-
-            }
-        }
-
-        return results;
-
-    }
 
     public List<BookResponseDTO> searchByTitle(String pattern) {
         /*

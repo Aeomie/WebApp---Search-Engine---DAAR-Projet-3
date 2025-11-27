@@ -1,6 +1,10 @@
 package com.example.webapp;
 
 
+import com.example.webapp.BookIndex.BookIndexContentEntity;
+import com.example.webapp.BookIndex.BookIndexContentRepository;
+import com.example.webapp.BookIndex.BookIndexEntity;
+import com.example.webapp.BookIndex.BookIndexRepository;
 import com.example.webapp.exception.InitializationException;
 import com.example.webapp.exception.JsonFileNotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
