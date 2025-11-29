@@ -1,9 +1,14 @@
 from JaccardGraph import JaccardGraph
-jaccard_graph = JaccardGraph(threshold=0.2)
-jaccard_graph.build_book_words_from_index('../books_data/index_TableTC.json')
-jaccard_graph.build_graph()
 
-for book_id, edges in jaccard_graph.graph.items():
-    print(f"Book ID: {book_id}")
-    for neighbor_id, similarity in edges:
-        print(f"  Neighbor ID: {neighbor_id}, Jaccard Similarity: {similarity:.4f}")
+if __name__ == "__main__":
+    # Create graph object
+    jaccard_graph = JaccardGraph(threshold=0.1, num_processes=4)
+
+    # Load book-word mapping
+    jaccard_graph.build_book_words_from_index("../books_data//index_TableTC.json")
+
+    # Build similarity graph in parallel
+    jaccard_graph.build_graph_parallel()
+
+    # Compute PageRank in parallel
+    jaccard_graph.calculate_pagerank_parallel()
