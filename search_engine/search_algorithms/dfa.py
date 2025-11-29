@@ -1,5 +1,5 @@
 from search_algorithms.nfa import NFA
-
+from collections import deque
 class DFA:
     def __init__(self, nfa: NFA):
         self.nfa = nfa
@@ -119,3 +119,43 @@ class DFA:
                     # If you want the actual matched substring, uncomment the next line
                     #matches.append((text[start:end + 1], start))
         return matches, len(matches)
+
+    from collections import deque
+
+    "-----------------------------"
+    # Generate words accepted by DFA"
+    def generate_words(self, max_words=100, max_length=20):
+        """
+        Generate up to `max_words` strings accepted by the DFA.
+        Only generates strings of length <= max_length.
+        """
+
+        results = []
+        queue = deque([(self.start_state, "")])  # (state, current_string)
+        visited = set()
+
+        while queue and len(results) < max_words:
+            state, word = queue.popleft()
+
+            # Avoid revisiting infinite loops
+            if (state, word) in visited:
+                continue
+            visited.add((state, word))
+
+            # If current DFA state is accepting
+            if state in self.final_states:
+                results.append(word)
+                if len(results) >= max_words:
+                    break
+
+            # Do not exceed max_length
+            if len(word) >= max_length:
+                continue
+
+            # Generate transitions
+            for symbol in self.alphabet:
+                next_state = self.transitions.get(state, {}).get(symbol, frozenset())
+                if next_state:
+                    queue.append((next_state, word + symbol))
+
+        return results
