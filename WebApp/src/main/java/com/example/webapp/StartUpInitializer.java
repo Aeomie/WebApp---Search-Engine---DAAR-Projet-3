@@ -125,7 +125,11 @@ public class StartUpInitializer {
                 logger.info("✅ Saved {} books to database", books.size());
             }
 
+            // Initialise Index table
             createBooksIndex();
+
+            // Initialise Jaccard
+            initJaccardService();
 
         } else {
             logger.info("✅ Database already has {} books", dbCount);
@@ -233,73 +237,63 @@ public class StartUpInitializer {
     }
 
     private void createBooksIndex(){
-
         try {
+            // Check if files already exist
+            boolean filesExist = fileExists(INDEX_TITLE_TABLE_JSON_PATH) &&
+                    fileExists(INDEX_TITLE_CONTENT_TABLE_JSON_PATH);
 
-            if ( fileExists(INDEX_TITLE_TABLE_JSON_PATH) && fileExists(INDEX_TITLE_CONTENT_TABLE_JSON_PATH) ){
+            if (!filesExist) {
+                logger.info(" Index files not found. Building from scratch...");
 
-            }
-            else{
-                String indexType = "T";
-
-
-                // To Build Title Index
-                Map<String, Object> requestBodyTitle = Map.of("index_type", indexType);
+                // Build Title Index
+                Map<String, Object> requestBodyTitle = Map.of("index_type", "T");
                 restTemplate.postForObject(BUILD_INDEX_API, requestBodyTitle, Map.class);
                 logger.info("Title index build started");
-                waitforIndexingCompletion(indexType);
+                waitforIndexingCompletion("T");
                 logger.info("Title index completed");
 
-                indexType = "TC";
-
-                // to Build Title Content Index
-                Map<String, Object> requestBodyTC = Map.of("index_type", indexType);
+                // Build Title+Content Index
+                Map<String, Object> requestBodyTC = Map.of("index_type", "TC");
                 restTemplate.postForObject(BUILD_INDEX_API, requestBodyTC, Map.class);
                 logger.info("Title+Content index build started");
-                waitforIndexingCompletion(indexType);
+                waitforIndexingCompletion("TC");
                 logger.info("Title+Content index completed");
 
-                System.out.println("Indexing completed. Reading JSON...");
+                // Verify files were created
+                filesExist = fileExists(INDEX_TITLE_TABLE_JSON_PATH) &&
+                        fileExists(INDEX_TITLE_CONTENT_TABLE_JSON_PATH);
+
+                if (!filesExist) {
+                    logger.error(" Index files still don't exist after build!");
+                    return; // Exit early
+                }
             }
 
-            // 1️⃣ Clear previous in-memory data (important!)
+            // Only load if files exist
+            logger.info("📖 Loading index files into database...");
             bookIndexEntities.clear();
+            bookIndexContentEntities.clear();
 
-            // 2️⃣ Reload JSON from Python output
             loadIndexTableFromJson();
 
-            // 3️⃣ Clear old DB entries
             indexRepository.deleteAll();
+            indexContentRepository.deleteAll();
 
-            // 4️⃣ Reinsert fresh data
             loadIndexTableToDatabase();
 
-            // Initialise Jaccard
-            initJaccardService();
+            logger.info("Index tables loaded successfully");
 
-        }
-        catch (HttpClientErrorException e) {
-            // Catches 4xx errors (400, 409, etc.)
-            int statusCode = e.getStatusCode().value();
-            String responseBody = e.getResponseBodyAsString();
-
-            if (statusCode == 409) {
-                logger.warn("Indexing already in progress!");
-                // Parse the error detail
-                // responseBody = {"detail":"Indexing already in progress"}
-            } else if (statusCode == 400) {
-                logger.warn("Bad request: " + responseBody);
-            }
-
+        } catch (HttpClientErrorException e) {
+            logger.error(" HTTP error during index creation: {}", e.getMessage());
         } catch (HttpServerErrorException e) {
-            // Catches 5xx errors
-            logger.warn("Server error: " + e.getMessage());
-
+            logger.error(" Server error during index creation: {}", e.getMessage());
         } catch (RestClientException e) {
-            // Catches connection errors
-            logger.warn("Connection failed: " + e.getMessage());
+            logger.error(" Connection failed: {}", e.getMessage());
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            logger.error(" Interrupted while waiting: {}", e.getMessage());
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.error(" Unexpected error in createBooksIndex: {}", e.getMessage(), e);
         }
     }
 
@@ -426,7 +420,6 @@ public class StartUpInitializer {
     }
 
     private void initJaccardService() {
-        System.out.println("DEBUG: Password being sent: " + JACCARD_PASSWORD );
         Map<String, Object> requestBody = Map.of("password", JACCARD_PASSWORD);
 
         try {
