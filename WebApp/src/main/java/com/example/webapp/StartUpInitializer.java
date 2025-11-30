@@ -64,6 +64,22 @@ public class StartUpInitializer {
 
     @Value("${index_status_api}")
     private String STATUS_INDEX_API;
+
+    @Value("${jaccard_status_api}")
+    private String JACCARD_STATUS_API;
+
+    @Value("${jaccard_build_api}")
+    private String BUILD_JACARD_API;
+
+    @Value("${jaccard_run_pagerank_api}")
+    private String GENERATE_PAGERANK_SCORES_API;
+
+    @Value("${jaccard_load_api}")
+    private String LOAD_JACCARD_API;
+
+    @Value("${jaccard_password}")
+    private String JACCARD_PASSWORD;
+
     @Autowired
     public StartUpInitializer(BookRepository bookRepository, BookIndexRepository indexRepository,
                               BookIndexContentRepository indexContentRepository,
@@ -258,6 +274,9 @@ public class StartUpInitializer {
             // 4️⃣ Reinsert fresh data
             loadIndexTableToDatabase();
 
+            // Initialise Jaccard
+            initJaccardService();
+
         }
         catch (HttpClientErrorException e) {
             // Catches 4xx errors (400, 409, etc.)
@@ -385,5 +404,55 @@ public class StartUpInitializer {
 
         logger.info("✅ {} Index - Database load completed ({} total entries)", indexType, entities.size());
     }
+
+
+    private void waitForJaccardField(String field, Object expectedValue, long intervalMs, int MaxTime) throws InterruptedException {
+        int maxRetries = (int) (MaxTime/ intervalMs);
+        int retries = 0;
+        String statusUrl = JACCARD_STATUS_API;
+
+        while (true) {
+            Map<String, Object> status = restTemplate.getForObject(statusUrl, Map.class);
+            if (status == null) throw new RuntimeException("Failed to get Jaccard status");
+
+            Object value = status.get(field);
+            if (expectedValue.equals(value)) break;
+
+            Thread.sleep(intervalMs);
+            retries++;
+            if (retries >= maxRetries)
+                throw new RuntimeException("Timeout waiting for " + field + " to reach " + expectedValue);
+        }
+    }
+
+    private void initJaccardService() {
+        System.out.println("DEBUG: Password being sent: " + JACCARD_PASSWORD );
+        Map<String, Object> requestBody = Map.of("password", JACCARD_PASSWORD);
+
+        try {
+            // Try to load existing graph + pagerank
+            restTemplate.postForObject(LOAD_JACCARD_API, requestBody, Map.class);
+            waitForJaccardField("loaded", true, 200, 300000); // 5 mns max
+            System.out.println("Jaccard graph & PageRank Scores loaded successfully.");
+        } catch (Exception e) {
+            System.out.println("Failed to load Jaccard graph. Rebuilding...");
+            try {
+                restTemplate.postForObject(BUILD_JACARD_API, requestBody, Map.class);
+                waitForJaccardField("status", "completed", 300, 300000); // 5 mns max
+                System.out.println("Jaccard graph rebuilt successfully.");
+
+                try {
+                    restTemplate.postForObject(GENERATE_PAGERANK_SCORES_API, requestBody, Map.class);
+                    waitForJaccardField("rank_status", "completed", 500, 300000); // 5 mns max
+                    System.out.println("PageRank Scores generated successfully.");
+                } catch (Exception ex) {
+                    System.out.println("Failed to generate PageRank Scores.");
+                }
+            } catch (Exception buildError) {
+                System.err.println("FATAL: Could not build Jaccard graph, Either Wrong Password or Build Failed.");
+            }
+        }
+    }
+
 
 }

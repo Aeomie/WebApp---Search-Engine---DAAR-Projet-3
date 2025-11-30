@@ -34,4 +34,19 @@ public class SearchController {
         return searchService.searchByTitleContent(generateWordDTO.getPattern(),
                 generateWordDTO.getMaxWords(), generateWordDTO.getMaxLength());
     }
+
+    @PostMapping("/classSearch")
+    public List<BookResponseDTO> classSearch(
+            @RequestBody GenerateWordDTO generateWordDTO
+    ){
+        return searchService.ClassingSearch(generateWordDTO.getPattern(),
+                generateWordDTO.getMaxWords(), generateWordDTO.getMaxLength());
+    }
+
+    @PostMapping("/suggestionSearch")
+    public List<BookResponseDTO> suggestionSearch(
+            @RequestParam int top_n
+    ){
+        return searchService.suggestionSearch(top_n);
+    }
 }

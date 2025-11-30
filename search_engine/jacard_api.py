@@ -25,6 +25,7 @@ class JacardStatus(BaseModel):
     rank_status: str
     rank_start_time: Optional[str] = None
     rank_end_time: Optional[str] = None
+    loaded: bool
 
 """
 Order has to be set up like this
@@ -49,10 +50,7 @@ async def lifespan(app: FastAPI):
 
     if graph_loaded and pagerank_loaded:
         print(" Service ready with pre-computed graph and PageRank")
-    elif graph_loaded:
-        print(" Graph loaded but PageRank not found")
-    elif pagerank_loaded:
-        print(" PageRank loaded but graph not found")
+        jacard_graph.progress['loaded'] = True
     else:
         print(" No pre-computed data found. Use /jacardAPI/build to create graph")
 
@@ -97,14 +95,14 @@ def run_pagerank():
     jacard_graph.progress['rank_start_time'] = datetime.now().isoformat()
     try:
         jacard_graph.calculate_pagerank_numpy(
-            max_iterations=100,  # safe default
+            max_iterations=100,
             damping=0.85
         )
         jacard_graph.progress['rank_status'] = 'completed'
     except Exception as e:
         print(f"ERROR IN PAGERANK: {e}")
         jacard_graph.progress['rank_status'] = 'failed'
-    finally:
+    finally:  # ✅ Always reset flags
         jacard_graph.progress['is_ranking'] = False
         jacard_graph.progress['rank_end_time'] = datetime.now().isoformat()
 
@@ -186,6 +184,10 @@ async def load_graph(request: BuildPasswordRequest):
     if request.password != "supersecret":
         raise HTTPException(status_code=403)
 
-    jacard_graph.load_graph()
-    jacard_graph.load_pagerank()
+    graph_loaded = jacard_graph.load_graph()
+    pagerank_loaded = jacard_graph.load_pagerank()
+    if not graph_loaded or not pagerank_loaded:
+        raise HTTPException(status_code=500, detail="Failed to load graph or PageRank")
+
+    jacard_graph.progress['loaded'] = True
     return {"message": "Graph and PageRank loaded"}

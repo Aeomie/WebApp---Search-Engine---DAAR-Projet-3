@@ -26,7 +26,8 @@ class JaccardGraph:
             'rank_status': 'idle',
             'is_ranking': False,
             'rank_start_time': None,
-            'rank_end_time': None
+            'rank_end_time': None,
+            'loaded' : False
         }
 
     # ---------------------------------------------------------
@@ -136,7 +137,6 @@ class JaccardGraph:
     # ---------------------------------------------------------
 
     def calculate_pagerank_numpy(self, damping=0.85, max_iterations=100, tol=1e-6):
-        self.progress['is_ranking'] = True
 
         nodes = list(self.book_words.keys())
         num_books = len(nodes)
@@ -180,7 +180,6 @@ class JaccardGraph:
 
         self.pagerank_scores = {idx_to_node[i]: float(pr[i]) for i in range(num_books)}
         self.save_pagerank()
-        self.progress['is_ranking'] = False
 
         print("✓ NUMPY PageRank calculated")
 
