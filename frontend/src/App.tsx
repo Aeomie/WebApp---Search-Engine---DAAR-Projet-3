@@ -264,15 +264,70 @@ function BookSuggestionsSection(props: {
     </div>
   );
 }
+function BookResultsSection(props: { books: BookDTO[] }) {
+  const { books } = props;
 
+  if (!books.length) return null;
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="lh-xs" style={{ marginBottom: 8 }}>
+        Livres trouvés (backend) : {books.length}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: 20,
+        }}
+      >
+        {books.map((b) => (
+          <div
+            key={b.id}
+            style={{
+              background: "#242428",
+              borderRadius: 10,
+              padding: 12,
+              border: "1px solid rgba(255,255,255,.06)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <CoverCard text={shortTitle(b.title)} />
+
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{b.title}</div>
+            <div style={{ fontSize: 13, opacity: 0.75 }}>
+              Auteur : {b.author}
+            </div>
+
+            <span
+              style={{
+                alignSelf: "flex-start",
+                fontSize: 12,
+                padding: "2px 8px",
+                borderRadius: 999,
+                background: "#323238",
+                opacity: 0.85,
+              }}
+            >
+              Résultat catalogue
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 export default function App() {
   const [view, setView] = useState<"search" | "results">("search");
   const [values, setValues] = useState({
-    pattern: "S(a|g|r)+on",
+    pattern: "",
     url: "",
     pasted: "",
     // "title" | "tc" | "class"
-    algo: "class",
+    algo: "title",
     caseSensitive: false,
     wholeLine: false,
     showStats: true,
@@ -300,6 +355,10 @@ export default function App() {
 
   /* Track if a search has been performed (required for suggestions API) */
   const [hasSearched, setHasSearched] = useState(false);
+
+  /* Pagination for backend results */
+  const [currentPage, setCurrentPage] = useState(1);
+  const [booksPerPage, setBooksPerPage] = useState(5); // Show 5 books per page
 
   const results = useMemo(() => {
     if (view !== "results")
@@ -354,6 +413,7 @@ export default function App() {
     setBackendBooks([]);
     setSuggestedBooks([]);
     setHasSearched(false); // Reset search state
+    setCurrentPage(1); // Reset to first page
 
     const u = (values.url || "").trim();
     let txt = values.pasted || "";
@@ -574,7 +634,7 @@ export default function App() {
                   <Label htmlFor="pattern">Motif (RegEx ERE)</Label>
                   <Input
                     id="pattern"
-                    placeholder="Ex: S(a|g|r)+on"
+                    placeholder="S(a|g|r)+on"
                     style={{ width: 360, maxWidth: "100%" }}
                     value={values.pattern}
                     onChange={(e) =>
@@ -610,57 +670,6 @@ export default function App() {
                   </Select>
                 </div>
               </div>
-
-              <hr className="sep" />
-
-              <Tabs defaultValue="url" className="w-full">
-                <TabsList className="flex" style={{ gap: 8, marginBottom: 8 }}>
-                  <TabsTrigger value="url">Depuis une URL</TabsTrigger>
-                  <TabsTrigger value="paste">Coller du texte</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="url" className="space-y-2">
-                  <Label htmlFor="url">URL du fichier texte</Label>
-                  <div className="flex" style={{ gap: 8 }}>
-                    <Input
-                      id="url"
-                      placeholder="https://exemple.org/fichier.txt"
-                      value={values.url}
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, url: e.target.value }))
-                      }
-                    />
-                    <Button variant="secondary" onClick={handleSend}>
-                      <LinkIcon size={12} />
-                      Charger
-                    </Button>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="paste" className="min-w-0">
-                  <Label
-                    htmlFor="paste"
-                    className="block text-sm font-medium mb-1"
-                  >
-                    Collez un texte
-                  </Label>
-
-                  <Textarea
-                    id="paste"
-                    rows={10}
-                    className="resize-y box-border overflow-auto"
-                    style={{
-                      width: "98%",
-                      maxWidth: "98%",
-                      minWidth: "98%",
-                    }}
-                    value={values.pasted}
-                    onChange={(e) =>
-                      setValues((v) => ({ ...v, pasted: e.target.value }))
-                    }
-                  />
-                </TabsContent>
-              </Tabs>
 
               <div
                 className="flex"
@@ -802,50 +811,155 @@ export default function App() {
                   </div>
                 )}
 
-                {!loadingBackend && backendBooks.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="lh-xs" style={{ marginBottom: 4 }}>
-                      Livres trouvés (backend) : {backendBooks.length}
-                    </div>
-                    <ul
-                      style={{
-                        listStyle: "none",
-                        padding: 0,
-                        margin: 0,
-                      }}
-                    >
-                      {backendBooks.map((b) => (
-                        <li
-                          key={b.id}
+                {!loadingBackend &&
+                  backendBooks.length > 0 &&
+                  (() => {
+                    const totalPages = Math.ceil(
+                      backendBooks.length / booksPerPage
+                    );
+                    const startIndex = (currentPage - 1) * booksPerPage;
+                    const endIndex = startIndex + booksPerPage;
+                    const currentBooks = backendBooks.slice(
+                      startIndex,
+                      endIndex
+                    );
+
+                    return (
+                      <div style={{ marginTop: 12 }}>
+                        {/* Books per page selector */}
+                        <div
+                          className="flex"
                           style={{
-                            padding: "6px 0",
-                            borderBottom: "1px dashed rgba(255,255,255,.12)",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 8,
                           }}
                         >
-                          <div style={{ fontSize: 14, fontWeight: 600 }}>
-                            {b.title}
+                          <div className="lh-xs">
+                            Livres trouvés : {backendBooks.length} (page{" "}
+                            {currentPage} sur {totalPages})
                           </div>
                           <div
-                            style={{
-                              fontSize: 12,
-                              opacity: 0.8,
-                            }}
+                            className="flex"
+                            style={{ gap: 8, alignItems: "center" }}
                           >
-                            Auteur : {b.author}
+                            <div
+                              className="flex"
+                              style={{ gap: 4, alignItems: "center" }}
+                            >
+                              <span style={{ fontSize: 12, opacity: 0.8 }}>
+                                Livres par page:
+                              </span>
+                              <Select
+                                value={booksPerPage.toString()}
+                                onValueChange={(val) => {
+                                  const newPerPage = parseInt(val);
+                                  setBooksPerPage(newPerPage);
+                                  // Reset to page 1 when changing items per page
+                                  setCurrentPage(1);
+                                }}
+                              >
+                                <SelectTrigger
+                                  style={{
+                                    width: 70,
+                                    height: 28,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="5">5</SelectItem>
+                                  <SelectItem value="10">10</SelectItem>
+                                  <SelectItem value="20">20</SelectItem>
+                                  <SelectItem value="50">50</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
+                        </div>
+
+                        {/* Navigation controls */}
+                        <div
+                          className="flex"
+                          style={{
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 8,
+                          }}
+                        >
+                          <div></div>
+                          <div className="flex" style={{ gap: 8 }}>
+                            <Button
+                              variant="secondary"
+                              style={{ padding: "4px 8px", fontSize: 12 }}
+                              disabled={currentPage === 1}
+                              onClick={() => setCurrentPage(currentPage - 1)}
+                            >
+                              ← Précédent
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              style={{ padding: "4px 8px", fontSize: 12 }}
+                              disabled={currentPage === totalPages}
+                              onClick={() => setCurrentPage(currentPage + 1)}
+                            >
+                              Suivant →
+                            </Button>
+                          </div>
+                        </div>
+
+                        <BookResultsSection books={currentBooks} />
+
+                        {/* Page numbers for easier navigation */}
+                        {totalPages > 1 && (
                           <div
+                            className="flex"
                             style={{
-                              fontSize: 11,
-                              opacity: 0.6,
+                              justifyContent: "center",
+                              marginTop: 12,
+                              gap: 4,
                             }}
                           >
-                            ID : {b.id}
+                            {Array.from(
+                              { length: Math.min(totalPages, 10) },
+                              (_, i) => {
+                                const pageNum = i + 1;
+                                if (
+                                  totalPages <= 10 ||
+                                  pageNum <= 5 ||
+                                  pageNum > totalPages - 5 ||
+                                  Math.abs(pageNum - currentPage) <= 2
+                                ) {
+                                  return (
+                                    <button
+                                      key={pageNum}
+                                      onClick={() => setCurrentPage(pageNum)}
+                                      style={{
+                                        padding: "4px 8px",
+                                        fontSize: 12,
+                                        background:
+                                          pageNum === currentPage
+                                            ? "#2b6cb0"
+                                            : "#374151",
+                                        color: "white",
+                                        border: "none",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {pageNum}
+                                    </button>
+                                  );
+                                }
+                                return null;
+                              }
+                            )}
                           </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                        )}
+                      </div>
+                    );
+                  })()}
 
                 {suggestionsError && (
                   <div
