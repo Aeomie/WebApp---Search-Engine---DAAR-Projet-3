@@ -60,15 +60,9 @@ public class SearchService {
 
         List<Book> books = bookRepository.findAllById(bookIds);
 
-        List<BookResponseDTO> results = books.stream()
-                .map(book -> BookResponseDTO.builder()
-                        .id(book.getId())
-                        .title(book.getTitle())
-                        .author(book.getAuthor())
-                        .build())
+        return books.stream()
+                .map(this::toDTO)
                 .toList();
-
-        return results;
     }
 
     public List<BookResponseDTO> searchByTitleContent(String regex,
@@ -123,11 +117,7 @@ public class SearchService {
 
         // 7️⃣ Map to BookResponseDTO
         return books.stream()
-                .map(book -> BookResponseDTO.builder()
-                        .id(book.getId())
-                        .title(book.getTitle())
-                        .author(book.getAuthor())
-                        .build())
+                .map(this::toDTO)
                 .toList();
     }
 
@@ -200,11 +190,7 @@ public class SearchService {
         return sortedBookIds.stream()
                 .map(bookMap::get)
                 .filter(Objects::nonNull)
-                .map(book -> BookResponseDTO.builder()
-                        .id(book.getId())
-                        .title(book.getTitle())
-                        .author(book.getAuthor())
-                        .build())
+                .map(this::toDTO)  // Use helper
                 .toList();
     }
 
@@ -256,18 +242,21 @@ public class SearchService {
         Map<Long, Book> bookById = books.stream()
                 .collect(Collectors.toMap(Book::getId, b -> b));
 
-        List<BookResponseDTO> results = sortedBookIds.stream()
+        return sortedBookIds.stream()
                 .map(bookById::get)
                 .filter(Objects::nonNull)
-                .map(book -> BookResponseDTO.builder()
-                        .id(book.getId())
-                        .title(book.getTitle())
-                        .author(book.getAuthor())
-                        .build())
+                .map(this::toDTO)  // Use helper
                 .toList();
-
-        return results;
     }
 
 
+    public BookResponseDTO toDTO(Book book) {
+        return BookResponseDTO.builder()
+                .id(book.getId())
+                .title(book.getTitle())
+                .author(book.getAuthor())
+                .sourceUrl(book.getSourceUrl())  // ← Map from entity
+                .imgUrl(book.getImgUrl())        // ← Map from entity
+                .build();
+    }
 }

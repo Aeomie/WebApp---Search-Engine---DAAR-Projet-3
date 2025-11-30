@@ -175,6 +175,7 @@ public class StartUpInitializer {
                         book.setAuthor((String) bookData.get("author"));
                         book.setFilePath((String) bookData.get("file_path"));
                         book.setSourceUrl((String) bookData.get("source_url"));
+                        book.setImgUrl((String) bookData.get("image_url"));
 
                         books.put(book.getId(), book);
                         successCount++;

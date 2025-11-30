@@ -29,4 +29,7 @@ public class Book {
 
     @Column(name = "source_url")
     private String sourceUrl;
+
+    @Column(name = "img_url")
+    private String imgUrl;
 }

@@ -15,12 +15,56 @@ import { Link as LinkIcon, Play, Search, BookOpen } from "lucide-react";
 
 // Matches the API's BookResponseDTO structure
 type BookDTO = {
-  id: number;
+  id: number; // Backend uses Long but JS handles it as number
   title: string;
-  author: string; // Note: API shows "Read or download for free" as example author value
+  author: string;
+  sourceUrl?: string; // Optional URL to the book source
+  imgUrl?: string; // Optional book cover image URL
 };
 
-function CoverCard({ text }: { text: string }) {
+function CoverCard({ text, imgUrl }: { text: string; imgUrl?: string }) {
+  const [imageError, setImageError] = useState(false);
+
+  // Debug logging
+  console.log(
+    `CoverCard for "${text}": imgUrl = "${imgUrl}", imageError = ${imageError}`
+  );
+
+  if (imgUrl && !imageError) {
+    console.log(`Attempting to display image: ${imgUrl}`);
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: 160,
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,.1)",
+          overflow: "hidden",
+          background: "#1a1a1a", // Dark background for loading
+        }}
+      >
+        <img
+          src={imgUrl}
+          alt={text}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain", // Better fit for book covers
+            background: "#1a1a1a",
+          }}
+          onError={() => {
+            console.log(`Image failed to load: ${imgUrl}`);
+            setImageError(true);
+          }}
+          onLoad={() => {
+            console.log(`Image loaded successfully: ${imgUrl}`);
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Fallback to generated cover
   return (
     <div
       style={{
@@ -267,6 +311,20 @@ function BookSuggestionsSection(props: {
 function BookResultsSection(props: { books: BookDTO[] }) {
   const { books } = props;
 
+  // Debug: Log all received books with their image URLs
+  console.log("BookResultsSection received books:", books);
+  books.forEach((book, index) => {
+    console.log(`Book ${index + 1}:`, {
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      sourceUrl: book.sourceUrl,
+      imgUrl: book.imgUrl,
+      hasImgUrl: !!book.imgUrl,
+      hasSourceUrl: !!book.sourceUrl,
+    });
+  });
+
   if (!books.length) return null;
 
   return (
@@ -282,40 +340,102 @@ function BookResultsSection(props: { books: BookDTO[] }) {
           gap: 20,
         }}
       >
-        {books.map((b) => (
-          <div
-            key={b.id}
-            style={{
-              background: "#242428",
-              borderRadius: 10,
-              padding: 12,
-              border: "1px solid rgba(255,255,255,.06)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
-            <CoverCard text={shortTitle(b.title)} />
+        {books.map((b) => {
+          const isClickable = !!b.sourceUrl;
+          const cardContent = (
+            <>
+              <CoverCard text={shortTitle(b.title)} imgUrl={b.imgUrl} />
 
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{b.title}</div>
-            <div style={{ fontSize: 13, opacity: 0.75 }}>
-              Auteur : {b.author}
-            </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: isClickable ? "#e8e8e8" : "inherit",
+                  textDecoration: "none",
+                  cursor: isClickable ? "pointer" : "default",
+                  transition: "color 0.2s ease",
+                  opacity: isClickable ? 0.9 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (isClickable) {
+                    e.currentTarget.style.color = "#ffffff";
+                    e.currentTarget.style.opacity = "1";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (isClickable) {
+                    e.currentTarget.style.color = "#e8e8e8";
+                    e.currentTarget.style.opacity = "0.9";
+                  }
+                }}
+              >
+                {b.title}
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.75 }}>
+                Auteur : {b.author}
+              </div>
 
-            <span
+              <span
+                style={{
+                  alignSelf: "flex-start",
+                  fontSize: 12,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "#323238",
+                  opacity: 0.85,
+                }}
+              >
+                Résultat catalogue
+              </span>
+            </>
+          );
+
+          return isClickable ? (
+            <a
+              key={b.id}
+              href={b.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               style={{
-                alignSelf: "flex-start",
-                fontSize: 12,
-                padding: "2px 8px",
-                borderRadius: 999,
-                background: "#323238",
-                opacity: 0.85,
+                background: "#242428",
+                borderRadius: 10,
+                padding: 12,
+                border: "1px solid rgba(255,255,255,.06)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                textDecoration: "none",
+                color: "inherit",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#2a2a30";
+                e.currentTarget.style.borderColor = "rgba(74, 158, 255, 0.3)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#242428";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,.06)";
               }}
             >
-              Résultat catalogue
-            </span>
-          </div>
-        ))}
+              {cardContent}
+            </a>
+          ) : (
+            <div
+              key={b.id}
+              style={{
+                background: "#242428",
+                borderRadius: 10,
+                padding: 12,
+                border: "1px solid rgba(255,255,255,.06)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              {cardContent}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

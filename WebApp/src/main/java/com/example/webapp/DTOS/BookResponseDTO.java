@@ -12,4 +12,8 @@ public class BookResponseDTO {
     private String title;
 
     private String author;
+
+    private String sourceUrl;
+
+    private String imgUrl;
 }

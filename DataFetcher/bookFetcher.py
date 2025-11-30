@@ -53,7 +53,7 @@ def save_to_json(catalog, output_file=JSON_CATALOG_FILE):
 
 def download_book(book_page_url):
     """
-    Download a single book from Gutenberg and add it to the catalog.
+    Download a single book from Gutenberg and add it to the catalog, including cover image URL.
 
     Args:
         book_page_url (str): URL of the book's page on Gutenberg
@@ -78,14 +78,25 @@ def download_book(book_page_url):
         # Download text
         data = session.get(file_url).content
 
-        # Extract title and author
-        title = soup.find("h1").text.strip() if soup.find("h1") else f"Book {gutenberg_id}"
-        author = soup.find("h2").text.strip() if soup.find("h2") else "Unknown"
+        # Extract title
+        title_tag = soup.find("h1")
+        title = title_tag.text.strip() if title_tag else f"Book {gutenberg_id}"
 
-        # Save with Gutenberg ID as filename
+        # Extract author reliably
+        author_tag = soup.find("a", {"rel": "marcrel:aut"})
+        author = author_tag.text.strip() if author_tag else "Unknown"
+
+        # Extract cover image URL (if exists)
+        img_tag = soup.find("img", class_="cover-art")
+        image_url = img_tag["src"] if img_tag else None
+        if image_url and not image_url.startswith("http"):
+            image_url = base_url + image_url  # make absolute if relative
+
+        # Save book text with Gutenberg ID as filename
         filename = f"{gutenberg_id}.txt"
         file_path = os.path.join(BOOKS_SAVE_LOCATION, filename)
 
+        os.makedirs(BOOKS_SAVE_LOCATION, exist_ok=True)
         with open(file_path, "wb") as f:
             f.write(data)
 
@@ -95,13 +106,16 @@ def download_book(book_page_url):
             "title": title,
             "author": author,
             "file_path": file_path,
-            "source_url": book_page_url
+            "source_url": book_page_url,
+            "image_url": image_url
         }
 
         return f"✅ Downloaded: {gutenberg_id} - {title}"
 
     except Exception as e:
         return f"❌ Error with {book_page_url}: {e}"
+
+
 
 
 # Main execution
