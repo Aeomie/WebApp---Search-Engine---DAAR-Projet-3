@@ -268,40 +268,103 @@ function BookSuggestionsSection(props: {
               gap: 20,
             }}
           >
-            {suggestions.map((b) => (
-              <div
-                key={b.id}
-                style={{
-                  background: "#242428",
-                  borderRadius: 10,
-                  padding: 12,
-                  border: "1px solid rgba(255,255,255,.06)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                <CoverCard text={shortTitle(b.title)} />
+            {suggestions.map((b) => {
+              const isClickable = !!b.sourceUrl;
+              const cardContent = (
+                <>
+                  <CoverCard text={shortTitle(b.title)} imgUrl={b.imgUrl} />
 
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{b.title}</div>
-                <div style={{ fontSize: 13, opacity: 0.75 }}>
-                  Auteur : {b.author}
-                </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: isClickable ? "#e8e8e8" : "inherit",
+                      textDecoration: "none",
+                      cursor: isClickable ? "pointer" : "default",
+                      transition: "color 0.2s ease",
+                      opacity: isClickable ? 0.9 : 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isClickable) {
+                        e.currentTarget.style.color = "#ffffff";
+                        e.currentTarget.style.opacity = "1";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (isClickable) {
+                        e.currentTarget.style.color = "#e8e8e8";
+                        e.currentTarget.style.opacity = "0.9";
+                      }
+                    }}
+                  >
+                    {b.title}
+                  </div>
+                  <div style={{ fontSize: 13, opacity: 0.75 }}>
+                    Auteur : {b.author}
+                  </div>
 
-                <span
+                  <span
+                    style={{
+                      alignSelf: "flex-start",
+                      fontSize: 12,
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      background: "#323238",
+                      opacity: 0.85,
+                    }}
+                  >
+                    Recommandation catalogue
+                  </span>
+                </>
+              );
+
+              return isClickable ? (
+                <a
+                  key={b.id}
+                  href={b.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
-                    alignSelf: "flex-start",
-                    fontSize: 12,
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    background: "#323238",
-                    opacity: 0.85,
+                    background: "#242428",
+                    borderRadius: 10,
+                    padding: 12,
+                    border: "1px solid rgba(255,255,255,.06)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    textDecoration: "none",
+                    color: "inherit",
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#2a2a30";
+                    e.currentTarget.style.borderColor =
+                      "rgba(74, 158, 255, 0.3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#242428";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,.06)";
                   }}
                 >
-                  Recommandation catalogue
-                </span>
-              </div>
-            ))}
+                  {cardContent}
+                </a>
+              ) : (
+                <div
+                  key={b.id}
+                  style={{
+                    background: "#242428",
+                    borderRadius: 10,
+                    padding: 12,
+                    border: "1px solid rgba(255,255,255,.06)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  {cardContent}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -590,7 +653,13 @@ export default function App() {
       }
 
       const url = `/api/v1/search/${endpoint}`;
-      console.log("Making API request:", { url, body, method: "POST" });
+      console.log("=== FRONTEND API DEBUG ===");
+      console.log("Algorithm:", values.algo);
+      console.log("Pattern:", values.pattern);
+      console.log("Endpoint:", endpoint);
+      console.log("Request body:", JSON.stringify(body, null, 2));
+      console.log("Full URL:", url);
+      console.log("========================");
 
       const resp = await fetch(url, {
         method: "POST",
