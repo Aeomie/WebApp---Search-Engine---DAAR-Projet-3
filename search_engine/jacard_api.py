@@ -1,207 +1,191 @@
-import re
-import json
-from collections import defaultdict
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Optional
+from JaccardGraph import JaccardGraph
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from fastapi import Query
+from typing import List
+from contextlib import asynccontextmanager
+
+# --- Password request model ---
+class BuildPasswordRequest(BaseModel):
+    password: str
+
+# --- Progress model ---
+class JacardStatus(BaseModel):
+    total_pairs: int
+    processed_pairs: int
+    is_building: bool
+    status: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    is_ranking: bool
+    rank_status: str
+    rank_start_time: Optional[str] = None
+    rank_end_time: Optional[str] = None
+
+"""
+Order has to be set up like this
+Load jacard , startup Checks if graph and pagerank exist
+If not exist build graph from inverted index
+Then compute pagerank
+Save both graph and pagerank
+"""
+# --- Global service instance ---
+jacard_graph = JaccardGraph(threshold=0.1, max_frac=0.2)
+jacard_thread_pool = ThreadPoolExecutor(max_workers=1)
+
+# --- StartUp Event ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler - runs on startup and shutdown"""
+    # Startup: Load graph and PageRank
+    print("\n=== Starting Jaccard Graph Service ===")
+
+    graph_loaded = jacard_graph.load_graph()
+    pagerank_loaded = jacard_graph.load_pagerank()
+
+    if graph_loaded and pagerank_loaded:
+        print(" Service ready with pre-computed graph and PageRank")
+    elif graph_loaded:
+        print(" Graph loaded but PageRank not found")
+    elif pagerank_loaded:
+        print(" PageRank loaded but graph not found")
+    else:
+        print(" No pre-computed data found. Use /jacardAPI/build to create graph")
+
+    print("=" * 40 + "\n")
+
+    yield  # Server runs here
+
+    # Shutdown: Cleanup code (optional)
+    print("\n=== Shutting down Jaccard Graph Service ===")
+
+# --- FastAPI App ---
+app = FastAPI(lifespan=lifespan)
+
+# --- Custom OpenAPI ---
+@app.get("/openapi.json")
+def custom_openapi():
+    return app.openapi()
+
+# --- Graph build function (runs in thread) ---
+def build_graph():
+    jacard_graph.progress['is_building'] = True
+    jacard_graph.progress['status'] = 'running'
+    jacard_graph.progress['start_time'] = datetime.now().isoformat()
+    try:
+        jacard_graph.build_graph_from_inverted_index(
+            inverted_index_path="../books_data/index_TableTC.json",
+            catalog_path="../books_data/catalog.json",
+            progress_interval=0.01
+        )
+        jacard_graph.progress['status'] = 'completed'
+    except Exception as e:
+        print(f"ERROR IN GRAPH BUILD: {e}")
+        jacard_graph.progress['status'] = 'failed'
+    finally:
+        jacard_graph.progress['is_building'] = False
+        jacard_graph.progress['end_time'] = datetime.now().isoformat()
+
+# --- PageRank function (runs in thread) ---
+def run_pagerank():
+    jacard_graph.progress['is_ranking'] = True
+    jacard_graph.progress['rank_status'] = 'running'
+    jacard_graph.progress['rank_start_time'] = datetime.now().isoformat()
+    try:
+        jacard_graph.calculate_pagerank_numpy(
+            max_iterations=100,  # safe default
+            damping=0.85
+        )
+        jacard_graph.progress['rank_status'] = 'completed'
+    except Exception as e:
+        print(f"ERROR IN PAGERANK: {e}")
+        jacard_graph.progress['rank_status'] = 'failed'
+    finally:
+        jacard_graph.progress['is_ranking'] = False
+        jacard_graph.progress['rank_end_time'] = datetime.now().isoformat()
+
+# --- Build Graph Endpoint ---
+@app.post("/jacardAPI/build")
+async def build_jacard_index(request: BuildPasswordRequest):
+    if request.password != "supersecret":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if jacard_graph.progress['is_building']:
+        raise HTTPException(status_code=409, detail="Build already in progress")
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(jacard_thread_pool, build_graph)
+    return {"message": "Jaccard graph build started"}
+
+# --- Run PageRank Endpoint ---
+@app.post("/jacardAPI/run_pagerank")
+async def start_jacard_pagerank(request: BuildPasswordRequest):
+    if request.password != "supersecret":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if jacard_graph.progress['status'] != 'completed':
+        raise HTTPException(status_code=409, detail="Graph building in progress or not completed")
+    if jacard_graph.progress['is_ranking']:
+        raise HTTPException(status_code=409, detail="PageRank already in progress")
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(jacard_thread_pool, run_pagerank)
+    return {"message": "PageRank computation started"}
+
+# --- Get Progress Endpoint ---
+@app.get("/jacardAPI/status", response_model=JacardStatus)
+async def get_index_status() -> JacardStatus:
+    return JacardStatus(**jacard_graph.progress)
+
+# --- Get Stats Endpoint ---
+@app.get("/jacardAPI/stats")
+async def get_stats():
+    return {
+        "total_pairs": jacard_graph.progress.get("total_pairs", 0),
+        "processed_pairs": jacard_graph.progress.get("processed_pairs", 0),
+        "status": jacard_graph.progress.get("status", "idle"),
+        "is_building": jacard_graph.progress.get("is_building", False),
+        "is_ranking": jacard_graph.progress.get("is_ranking", False),
+        "rank_status": jacard_graph.progress.get("rank_status", "idle")
+    }
+
+@app.get("/jacardAPI/pagerank")
+async def get_pagerank(book_ids: List[int] = Query(...)):
+    """Return PageRank scores for the requested book IDs"""
+    if not jacard_graph.pagerank_scores:
+        raise HTTPException(status_code=400, detail="PageRank not calculated yet")
+
+    print(f"Looking for book_ids: {book_ids}")
+    print(f"Type of first book_id: {type(book_ids[0])}")
+
+    result = {book_id: jacard_graph.pagerank_scores.get(book_id, 0.0) for book_id in book_ids}
+    return result
+
+@app.get("/jacardAPI/similar/{book_id}")
+async def get_similar_books(book_id: int, top_n: int = 5):
+    """Return top N most similar books based on Jaccard similarity"""
+    neighbors = jacard_graph.get_neighbors(book_id)
+    if not neighbors:
+        return {"book_id": book_id, "similar_books": []}
+
+    # Sort neighbors by similarity descending
+    neighbors_sorted = sorted(neighbors, key=lambda x: x[1], reverse=True)
+    top_neighbors = neighbors_sorted[:top_n]
+
+    return {
+        "book_id": book_id,
+        "similar_books": [{"book_id": b, "similarity": sim} for b, sim in top_neighbors]
+    }
 
 
-class Book(BaseModel):
-    id: int
-    title: str
-    author: Optional[str] = None
-    content: Optional[str] = None
 
+@app.post("/jacardAPI/load")
+async def load_graph(request: BuildPasswordRequest):
+    if request.password != "supersecret":
+        raise HTTPException(status_code=403)
 
-class IndexContent(BaseModel):
-    book_id: str
-    frequency: int
-
-
-class indexService:
-    def __init__(self, storage_path="../books_data"):
-        self.storage_path = Path(storage_path)
-        self.storage_path.mkdir(exist_ok=True, parents=True)
-        self.indexing_dict: Dict[str, List[Dict]] = {}
-
-        # Separate status for each index type
-        self.indexing_status = {
-            'T': {
-                'is_indexing': False,
-                'progress': 0,
-                'total_books': 0,
-                'indexed_books': 0,
-                'status': 'idle',
-                'start_time': None,
-                'end_time': None
-            },
-            'TC': {
-                'is_indexing': False,
-                'progress': 0,
-                'total_books': 0,
-                'indexed_books': 0,
-                'status': 'idle',
-                'start_time': None,
-                'end_time': None
-            }
-        }
-
-
-    def tokenize(self, text: str) -> List[str]:
-        """Extract words from text"""
-        return re.findall(r'\b[a-z0-9]+\b', text.lower())
-
-    @staticmethod
-    def _build_partial_index_by_Title(books_chunk):
-        """Static method that can be pickled for multiprocessing"""
-        partial_index = defaultdict(list)
-        for book in books_chunk:
-            try:
-                # Tokenize title
-                words = re.findall(r'\b[a-z0-9]+\b', book.title.lower())
-                word_freq = defaultdict(int)
-                for w in words:
-                    word_freq[w] += 1
-                for word, freq in word_freq.items():
-                    partial_index[word].append({'book_id': book.id, 'frequency': freq})
-            except Exception as e:
-                print(f"Error processing book {book.id}: {e}")
-                continue
-        return dict(partial_index), len(books_chunk)
-
-    @staticmethod
-    def _build_partial_index_by_Title_Content(books_chunk):
-        """Static method that can be pickled for multiprocessing"""
-        partial_index = defaultdict(list)
-        for book in books_chunk:
-            try:
-                # Tokenize title + content safely
-                title = book.title.lower() if book.title else ""
-                content = book.content.lower() if book.content else ""
-                text = title + " " + content
-                words = re.findall(r'\b[a-z0-9]+\b', text)
-                word_freq = defaultdict(int)
-                for w in words:
-                    word_freq[w] += 1
-                for word, freq in word_freq.items():
-                    partial_index[word].append({'book_id': book.id, 'frequency': freq})
-            except Exception as e:
-                print(f"Error processing book {book.id}: {e}")
-                continue
-        return dict(partial_index), len(books_chunk)
-
-    @staticmethod
-    def _load_books_batch(all_files: List[Path], start: int, batch_size: int) -> List[Book]:
-        """Load books from file list in batches"""
-        books = []
-        batch_files = all_files[start:start + batch_size]
-
-        for file in batch_files:
-            try:
-                with open(file, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    book_id = int(file.stem)
-                    books.append(Book(id=book_id, content=content))
-            except Exception as e:
-                print(f"Error reading file {file}: {e}")
-                continue
-
-        return books
-
-    def build_index_parallel(self, num_processes=4, index_type="T"):
-        """Build index by streaming through catalog in batches"""
-        BATCH_SIZE = 1000
-
-        self.indexing_status[index_type]['is_indexing'] = True
-        self.indexing_status[index_type]['status'] = 'indexing'
-        self.indexing_status[index_type]['indexed_books'] = 0
-        self.indexing_status[index_type]['start_time'] = datetime.now().isoformat()
-        self.indexing_dict = {}
-
-        # Load catalog once
-        catalog_path = Path(self.storage_path) / "catalog.json"
-        with open(catalog_path, 'r', encoding='utf-8', errors='ignore') as f:
-            catalog = json.load(f)
-
-        all_book_ids = list(catalog.keys())
-        self.indexing_status[index_type]['total_books'] = len(all_book_ids)
-
-        # Process in batches
-        for batch_start in range(0, len(all_book_ids), BATCH_SIZE):
-            batch_ids = all_book_ids[batch_start:batch_start + BATCH_SIZE]
-
-            # Load books for this batch
-            books = []
-            for book_id in batch_ids:
-                try:
-                    book_data = catalog[book_id]
-                    content = ""
-
-                    # Read content if needed for TC index
-                    if index_type == "TC":
-                        file_path = Path(book_data['file_path'])
-                        if file_path.exists():
-                            try:
-                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                    content = f.read()
-                            except Exception as e:
-                                print(f"Warning: Could not read {file_path}: {e}")
-                                content = ""
-
-                    books.append(Book(
-                        id=int(book_id),
-                        title=book_data['title'],
-                        author=book_data.get('author'),
-                        content=content
-                    ))
-                except Exception as e:
-                    print(f"Error processing book_id {book_id}: {e}")
-                    continue
-
-            # Skip if no books loaded
-            if len(books) == 0:
-                continue
-
-            # Process with workers
-            chunk_size = max(1, len(books) // num_processes)
-            chunks = [books[i:i + chunk_size] for i in range(0, len(books), chunk_size)]
-
-            with ProcessPoolExecutor(max_workers=num_processes) as executor:
-                method = self._build_partial_index_by_Title if index_type == "T" else self._build_partial_index_by_Title_Content
-                futures = [executor.submit(method, chunk) for chunk in chunks]
-
-                for future in as_completed(futures):
-                    partial_index, count = future.result()
-                    for word, entries in partial_index.items():
-                        if word not in self.indexing_dict:
-                            self.indexing_dict[word] = []
-                        self.indexing_dict[word].extend(entries)
-
-                    self.indexing_status[index_type]['indexed_books'] += count
-                    self.indexing_status[index_type]['progress'] = int(
-                        self.indexing_status[index_type]['indexed_books'] / len(all_book_ids) * 100
-                    )
-
-            del books
-        self.indexing_status[index_type]['is_indexing'] = False
-        self.indexing_status[index_type]['end_time'] = datetime.now().isoformat()
-        self.indexing_status[index_type]['progress'] = 100
-
-        self.save_index(index_type)
-        self.indexing_status[index_type]['status'] = 'completed'
-
-    def save_index(self, index_type: str):
-        """Save index to JSON files"""
-        # Save inverted index
-        file_name = f"index_Table{index_type}.json"
-        index_file = self.storage_path / file_name
-        with open(index_file, 'w', encoding='utf-8') as f:
-            json.dump(self.indexing_dict, f, ensure_ascii=False)
-
-        # Save status
-        status_file_name = f"index_status_{index_type}.json"
-        status_file = self.storage_path / status_file_name
-        with open(status_file, 'w', encoding='utf-8') as f:
-            json.dump(self.indexing_status, f, indent=2, ensure_ascii=False)
+    jacard_graph.load_graph()
+    jacard_graph.load_pagerank()
+    return {"message": "Graph and PageRank loaded"}
